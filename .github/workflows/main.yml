@@ -2,7 +2,7 @@ name: Post to X
 
 on:
   schedule:
-    - cron: "17 * * * *"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -35,13 +35,14 @@ jobs:
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          FORCE_POST: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
         run: python3 bot.py
 
       - name: Persist sent history
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add sent.json
+          git add sent.json post_log.json
           if git diff --cached --quiet; then
             echo "No sent history changes to commit."
           else
