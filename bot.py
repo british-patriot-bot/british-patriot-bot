@@ -1,11 +1,18 @@
 import os
 import random
 import datetime
+import json
+import time
 from google import genai
+from zoneinfo import ZoneInfo
+
 import tweepy
 from dotenv import load_dotenv
 
 load_dotenv()
+
+TIMEZONE = ZoneInfo("Europe/London")
+SENT_FILE = "sent.json"
 
 # 1. Configuration & Themes
 THEMES = [
@@ -18,12 +25,49 @@ THEMES = [
     "The extraordinary potential of Great Britain when we embrace national strength."
 ]
 
+def now():
+    return datetime.datetime.now(TIMEZONE)
+
+def get_today():
+    return now().strftime("%Y-%m-%d")
+
+def get_slot():
+    hour = now().hour
+    if 6 <= hour < 12:
+        return "morning"
+    if 18 <= hour < 23:
+        return "evening"
+    return None
+
+def load_sent():
+    if not os.path.exists(SENT_FILE):
+        return {}
+    with open(SENT_FILE, encoding="utf-8") as file:
+        return json.load(file)
+
+def save_sent(sent):
+    with open(SENT_FILE, "w", encoding="utf-8") as file:
+        json.dump(sent, file, ensure_ascii=False, indent=2)
+        file.write("\n")
+
+def retry_call(action, name, retries=3, delay=2, sleep=time.sleep):
+    current_delay = delay
+    for attempt in range(1, retries + 1):
+        try:
+            return action()
+        except Exception as error:
+            print(f"{name} failed, attempt {attempt}/{retries}: {error}")
+            if attempt == retries:
+                raise
+            sleep(current_delay)
+            current_delay *= 2
+
 def get_tweet_content():
     # 新版初始化方式
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     
     # Determine if it's morning or afternoon post to vary the angle slightly
-    current_hour = datetime.datetime.now().hour
+    current_hour = now().hour
     time_of_day = "morning (energizing, wake-up call)" if current_hour < 12 else "afternoon/evening (reflective, sharp, or witty commentary)"
     
     # Pick a random theme from the list to rotate through
@@ -66,30 +110,69 @@ def get_tweet_content():
     6. Formatting: Do not use quotation marks around the output.
     
     Write the text now:"""
+
+    prompt3 = f"""
+You are Dave — a 52-year-old bloke from Sheffield. Former engineer, now runs a small
+business. You love British history, hate bureaucracy, and think this country has lost
+its nerve. You're not angry — just quietly frustrated, and still hopeful.
+
+It's {time_of_day}. You're posting a thought on X about: {selected_theme}
+
+Write exactly ONE tweet as Dave would write it. Rules:
+- Sound like a real person, not a politician or activist
+- Dry wit or understatement is welcome — but don't force it
+- No hashtags
+- No exclamation marks
+- No quotes around the output
+- Under 200 characters
+- Avoid these words: borders, sovereignty, national, reformist, security, rebuild
+
+Example of the right tone:
+"Funny how the same people who say Britain has nothing to be proud of still queue
+politely and say sorry when someone bumps into them."
+
+Write the tweet now:
+"""
     
-    # print(prompt)
+    print(prompt3)
         
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=prompt
+    response = retry_call(
+        lambda: client.models.generate_content(
+            model='gemini-3.5-flash',
+            contents=prompt3
+        ),
+        "Gemini generation",
     )
-    image_response = client.models.generate_images(
-        model='imagen-3.0-generate-002',  # 改成这个官方标准名称
-        prompt=response.text.strip(),
-        config=dict(
-            number_of_images=1,
-            output_mime_type="image/jpeg",
-            aspect_ratio="16:9"  # 额外赠送：推特发图配 16:9 视觉效果最好
-        )
-    )
-    for generated_image in image_response.generated_images:
-        with open("image.jpg", "wb") as f:
-            f.write(generated_image.image.image_bytes)
-    print("image generated successfully and saved as image.jpg")
+    print("--------------------------------response--------------------------------")
+    print(response.text.strip())
+    
+    # image_response = client.models.generate_content(
+    #     model="gemini-2.5-flash-image",
+    #     contents=prompt,
+    #     config=types.GenerateContentConfig(
+    #         response_modalities=["TEXT", "IMAGE"]
+    #     )
+    # )
+    # for generated_image in image_response.generated_images:
+    #     with open("image.jpg", "wb") as f:
+    #         f.write(generated_image.image.image_bytes)
+    # print("image generated successfully and saved as image.jpg")
 
     return response.text.strip()
 
 def post_to_x():
+    slot = get_slot()
+    if slot is None:
+        print("当前不在发布时间段，退出")
+        return
+
+    sent = load_sent()
+    today = get_today()
+    sent_today = sent.get(today, {})
+    if slot in sent_today:
+        print(f"今天 {slot} 已经发过，退出")
+        return
+
     # Fetch API keys from environment variables (set securely in GitHub)
     api_key = os.environ["X_API_KEY"]
     api_secret = os.environ["X_API_SECRET"]
@@ -114,13 +197,26 @@ def post_to_x():
     # Print to console (for logs) and post to X
     # upload image
     print("uploading image...")
-    media = api_v1.media_upload(filename="image.jpg") # image path
+    media = retry_call(
+        lambda: api_v1.media_upload(filename="image.jpg"),
+        "Image upload",
+    )
     media_id = media.media_id_string
     print(f"image uploaded successfully, Media ID: {media_id}")
 
     # post tweet with image
-    # tweet_text = "Good morning from London. Our resolve remains unshaken."
-    client.create_tweet(text=tweet_text, media_ids=[media_id])
+    tweet_response = retry_call(
+        lambda: client.create_tweet(text=tweet_text, media_ids=[media_id]),
+        "Tweet creation",
+        retries=2,
+    )
+    tweet_id = str(tweet_response.data.get("id", "")) if getattr(tweet_response, "data", None) else ""
+    sent.setdefault(today, {})[slot] = {
+        "tweetId": tweet_id,
+        "text": tweet_text,
+        "createdAt": now().isoformat(),
+    }
+    save_sent(sent)
     print("Tweet successfully posted!")
 
 if __name__ == "__main__":
