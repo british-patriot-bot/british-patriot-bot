@@ -1,14 +1,13 @@
-name: Post to X
+name: Manual Test Post to X
 
 on:
-  schedule:
-    - cron: "*/10 * * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: post-to-x
+  group: manual-test-post-to-x
   cancel-in-progress: false
 
 jobs:
@@ -27,25 +26,25 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run bot
+      - name: Run manual test post
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           X_API_KEY: ${{ secrets.X_API_KEY }}
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
-          FORCE_POST: "false"
+          FORCE_POST: "true"
         run: python3 bot.py
 
-      - name: Persist sent history
+      - name: Persist sent history and failure logs
         if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add sent.json post_log.json
           if git diff --cached --quiet; then
-            echo "No sent history changes to commit."
+            echo "No sent history or failure log changes to commit."
           else
-            git commit -m "chore: update sent history"
+            git commit -m "chore: update post state"
             git push
           fi

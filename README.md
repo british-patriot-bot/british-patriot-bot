@@ -129,7 +129,7 @@ If tweet creation fails after retries, the bot appends a record to `post_log.jso
 ]
 ```
 
-GitHub Actions commits `post_log.json` back to the repository together with `sent.json`.
+GitHub Actions commits `post_log.json` back to the repository together with `sent.json`. The commit step runs with `if: always()`, so failure logs can still be persisted when the bot step fails.
 
 ## GitHub Actions
 
@@ -140,16 +140,16 @@ schedule:
   - cron: "*/10 * * * *"
 ```
 
-You can also run the workflow manually from the GitHub Actions page. Manual runs set `FORCE_POST=true`, which bypasses the posting window and the existing `sent.json` slot guard so the bot posts immediately.
+For a one-off test post, use the separate `Manual Test Post to X` workflow in the GitHub Actions page. It sets `FORCE_POST=true`, which bypasses the posting window and the existing `sent.json` slot guard so the bot posts immediately.
 
 Workflow steps:
 
 1. Check out the repository.
 2. Install Python dependencies.
 3. Run `python3 bot.py`.
-4. If `sent.json` changed, commit and push it back to the repository.
+4. If `sent.json` or `post_log.json` changed, commit and push them back to the repository.
 
-Because the workflow writes `sent.json` back to the repo, enable write permissions:
+Because the workflows write `sent.json` and `post_log.json` back to the repo, enable write permissions:
 
 ```text
 Repository -> Settings -> Actions -> General -> Workflow permissions
