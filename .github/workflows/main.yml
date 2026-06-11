@@ -2,7 +2,7 @@ name: Post to X
 
 on:
   schedule:
-    - cron: "* * * * *"
+    - cron: "*/10 * * * *"
 
 permissions:
   contents: write
