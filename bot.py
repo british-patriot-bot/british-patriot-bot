@@ -34,9 +34,9 @@ def get_today():
 
 def get_slot():
     hour = now().hour
-    if 6 <= hour < 12:
+    if 0 <= hour <= 12:
         return "morning"
-    if 18 <= hour < 23:
+    if 12 < hour < 24:
         return "evening"
     return None
 
